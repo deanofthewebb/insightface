@@ -7,9 +7,7 @@ config = edict()
 config.network = "r100"           # ignored when using --onnx-backbone, kept for logs
 config.margin_list = (1.0, 0.5, 0.0)
 config.embedding_size = 512       # ONNX ArcFace IR-100 outputs 512-D
-config.sample_rate = 1.0          # 100k classes is fine without sampling
 config.interclass_filtering_threshold = 0.0
-config.fp16 = True
 
 config.resume = False
 config.output = "work_dirs/custom_nvr_onnx_100k"
@@ -29,12 +27,15 @@ config.dali = False
 # ---- Batch / optimizer ----
 # Per-GPU batch size. With 4 GPUs this gives global batch = 512.
 # For 1 GPU with 16–24 GB, 128 is usually safe; drop to 64 if you hit OOM.
-config.batch_size = 128
-
-config.optimizer = "sgd"      # official ArcFace uses SGD + 0.1 LR
-config.lr = 0.1
-config.momentum = 0.9
+config.batch_size  = 256      # per GPU (global 2048)
+config.lr          = 0.01     # conservative for fine-tune at this batch
+config.num_epoch   = 15       # 10–20 is reasonable for ~1M images
+config.optimizer   = "sgd"
+config.momentum    = 0.9
 config.weight_decay = 5e-4
+
+config.sample_rate = 1.0      # 100k classes is OK without class sampling
+config.fp16        = True     # definitely use mixed precision on A100s
 
 # ---- Training length ----
 # 20–30 epochs is typical for fine-tuning on a new dataset at this scale.
