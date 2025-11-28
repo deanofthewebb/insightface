@@ -101,3 +101,6 @@ ENV/
 .mypy_cache/
 
 .DS_Store
+
+# Pretrained models (download from S3)
+pretrained_models/

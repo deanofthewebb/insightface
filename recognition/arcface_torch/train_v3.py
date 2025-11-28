@@ -19,7 +19,8 @@ from utils.utils_distributed_sampler import setup_seed
 from utils.utils_logging import AverageMeter, init_logging
 
 from onnx_arcface_backbone import ONNXArcFaceBackbone, compare_onnx_pytorch
-from model_utils import print_model_summary  # your summary helper
+from utils.weight_mapping import load_sequential_weights
+from model_utils import print_model_summary
 
 assert torch.__version__ >= "1.9.0"
 
@@ -122,30 +123,34 @@ def build_backbone(cfg, args):
             state_dict = raw_state
 
         if looks_like_onnx_backbone_state(state_dict):
-            # This is almost certainly a converted ONNXArcFaceBackbone .pth
-            raise RuntimeError(
-                "The provided --backbone-pth looks like it was saved from "
-                "ONNXArcFaceBackbone (keys like 'p_0', 'b_0', ...). "
-                "To load it correctly, you MUST also provide --onnx-backbone "
-                "so the architecture can be reconstructed from the original ONNX model.\n\n"
-                "Example:\n"
-                "  torchrun --nproc_per_node=8 train_v3.py configs/custom_nvr_onnx.py \\\n"
-                "    --onnx-backbone /path/to/nvr.prod.v7.onnx \\\n"
-                "    --backbone-pth /path/to/nvr_prod_v7_backbone.pth\n"
+            # Sequential format (p_*, b_*) - load into cfg.network architecture
+            logging.info(
+                f"[Backbone] Detected sequential weight format (p_*, b_*) from {args.backbone_pth}"
             )
-
-        # Otherwise, assume it's a standard arcface_torch backbone for cfg.network
-        logging.info(
-            f"[Backbone] Using built-in backbone '{cfg.network}' "
-            f"and loading weights from {args.backbone_pth}"
-        )
-        core = get_model(
-            cfg.network,
-            dropout=0.0,
-            fp16=cfg.fp16,
-            num_features=cfg.embedding_size,
-        ).to(local_device)
-        core.load_state_dict(state_dict, strict=True)
+            logging.info(f"[Backbone] Building {cfg.network} and mapping weights...")
+            
+            core = get_model(
+                cfg.network,
+                dropout=0.0,
+                fp16=cfg.fp16,
+                num_features=cfg.embedding_size,
+            ).to(local_device)
+            
+            # Use weight mapping utility to load sequential weights
+            load_sequential_weights(core, args.backbone_pth, strict=False)
+        else:
+            # Standard PyTorch format - load directly
+            logging.info(
+                f"[Backbone] Using built-in backbone '{cfg.network}' "
+                f"and loading weights from {args.backbone_pth}"
+            )
+            core = get_model(
+                cfg.network,
+                dropout=0.0,
+                fp16=cfg.fp16,
+                num_features=cfg.embedding_size,
+            ).to(local_device)
+            core.load_state_dict(state_dict, strict=True)
 
     # ----- Case 3: no ONNX, no .pth -> fully standard backbone -----
     else:
