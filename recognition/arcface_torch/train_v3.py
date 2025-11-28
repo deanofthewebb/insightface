@@ -18,7 +18,7 @@ from utils.utils_config import get_config
 from utils.utils_distributed_sampler import setup_seed
 from utils.utils_logging import AverageMeter, init_logging
 
-from onnx_arcface_backbone import ONNXArcFaceBackbone, compare_onnx_pytorch
+from onnx_arcface_backbone import ONNXArcFaceBackbone, compare_onnx_and_pytorch
 from model_utils import print_model_summary  # your summary helper
 
 assert torch.__version__ >= "1.9.0"
@@ -103,7 +103,7 @@ def build_backbone(cfg, args):
         print_model_summary(core, input_shape=(1, 3, 112, 112))
 
     if RANK == 0 and args.compare_onnx and args.onnx_backbone is not None:
-        compare_onnx_pytorch(
+        compare_onnx_and_pytorch(
             args.onnx_backbone,
             pytorch_model=core,
             device=local_device,
