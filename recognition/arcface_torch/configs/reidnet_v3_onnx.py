@@ -11,11 +11,12 @@ config.interclass_filtering_threshold = 0.0
 config.output = "/home/ubuntu/checkpoints/reidnet_v3/work_dirs"
 config.resume = False
 
-config.rec = "/home/ubuntu/insightface_training/datasets/reidnet_v3_train"
+config.rec = "/home/ubuntu/insightface_training/datasets/reidnet_v3_rec"
 config.num_classes = 100_000
 config.num_image = 1_000_000
 config.num_workers = 8
 config.dali = False
+config.dali_aug = False
 
 config.batch_size = 256
 
