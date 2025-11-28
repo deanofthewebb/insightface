@@ -19,7 +19,7 @@ from utils.utils_distributed_sampler import setup_seed
 from utils.utils_logging import AverageMeter, init_logging
 
 from onnx_arcface_backbone import ONNXArcFaceBackbone, compare_onnx_and_pytorch
-from model_utils import print_model_summary  # your summary helper
+from utils.model_utils import print_model_summary
 
 assert torch.__version__ >= "1.9.0"
 

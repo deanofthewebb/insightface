@@ -326,11 +326,11 @@ def dali_data_iter(
     return DALIWarper(DALIClassificationIterator(pipelines=[pipe], reader_name=name, ))
 
 
-@torch.no_grad()
 class DALIWarper(object):
     def __init__(self, dali_iter):
         self.iter = dali_iter
 
+    @torch.no_grad()
     def __next__(self):
         data_dict = self.iter.__next__()[0]
         tensor_data = data_dict['data'].cuda()
