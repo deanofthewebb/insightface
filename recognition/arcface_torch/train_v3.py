@@ -18,8 +18,8 @@ from utils.utils_config import get_config
 from utils.utils_distributed_sampler import setup_seed
 from utils.utils_logging import AverageMeter, init_logging
 
-from onnx_arcface_backbone import ONNXArcFaceBackbone, compare_onnx_and_pytorch
-from utils.model_utils import print_model_summary
+from onnx_arcface_backbone import ONNXArcFaceBackbone, compare_onnx_pytorch
+from model_utils import print_model_summary  # your summary helper
 
 assert torch.__version__ >= "1.9.0"
 
@@ -39,7 +39,20 @@ except KeyError:
     )
 
 
-def load_backbone_state(core, ckpt_path: str):
+def looks_like_onnx_backbone_state(state_dict: dict) -> bool:
+    """
+    Heuristic: ONNXArcFaceBackbone params are registered as p_*, b_*.
+    Built-in arcface_torch backbones use names like 'body.0.weight', 'layer1.0.conv1.weight', etc.
+    """
+    keys = list(state_dict.keys())
+    if not keys:
+        return False
+    # If most keys start with 'p_' or 'b_', it's almost certainly ONNXArcFaceBackbone
+    onnx_style = sum(k.startswith(("p_", "b_")) for k in keys)
+    return onnx_style > 0.7 * len(keys)
+
+
+def load_backbone_state(core: torch.nn.Module, ckpt_path: str) -> None:
     """Load backbone weights from a .pth file.
 
     Supports:
@@ -59,19 +72,29 @@ def load_backbone_state(core, ckpt_path: str):
 
 
 def build_backbone(cfg, args):
-    """Build backbone according to config and CLI flags."""
+    """
+    Build the embedding backbone with the correct architecture for the given weights.
+
+    Cases:
+      1) --onnx-backbone given:
+           -> always use ONNXArcFaceBackbone (LResNet100E-IR style).
+           -> if --backbone-pth given, load it into that model.
+      2) no --onnx-backbone, but --backbone-pth given:
+           -> inspect the .pth:
+              - if it looks like ONNXArcFaceBackbone -> ERROR: user must also pass --onnx-backbone
+              - else assume it's a built-in arcface_torch backbone and use get_model(cfg.network, ...)
+      3) neither flag given:
+           -> plain get_model(cfg.network, ...)
+    """
     local_device = f"cuda:{args.local_rank}"
     torch.cuda.set_device(args.local_rank)
 
-    # --- Case 1: ONNX backbone (LResNet100E-IR graph) ---
+    # ----- Case 1: explicit ONNX backbone -----
     if args.onnx_backbone is not None:
         logging.info(f"[Backbone] Using ONNXArcFaceBackbone from {args.onnx_backbone}")
-        core = ONNXArcFaceBackbone(
-            args.onnx_backbone,
-            fp16=cfg.fp16,
-        ).to(local_device)
+        core = ONNXArcFaceBackbone(args.onnx_backbone, fp16=cfg.fp16).to(local_device)
 
-        # Infer embedding dimension from a dummy forward
+        # Infer embedding dimension
         core.eval()
         with torch.no_grad():
             dummy = torch.randn(1, 3, 112, 112, device=local_device)
@@ -84,7 +107,47 @@ def build_backbone(cfg, args):
             )
             cfg.embedding_size = emb_dim
 
-    # --- Case 2: standard arcface_torch backbone ---
+        # If a .pth is provided, load it on top of the ONNX-defined architecture
+        if args.backbone_pth is not None:
+            load_backbone_state(core, args.backbone_pth)
+
+    # ----- Case 2: no ONNX path, but .pth given -----
+    elif args.backbone_pth is not None:
+        # Peek at the checkpoint to decide which architecture to build
+        raw_state = torch.load(args.backbone_pth, map_location="cpu")
+        # If it's a full checkpoint, extract the backbone part
+        if isinstance(raw_state, dict) and "state_dict_backbone" in raw_state:
+            state_dict = raw_state["state_dict_backbone"]
+        else:
+            state_dict = raw_state
+
+        if looks_like_onnx_backbone_state(state_dict):
+            # This is almost certainly a converted ONNXArcFaceBackbone .pth
+            raise RuntimeError(
+                "The provided --backbone-pth looks like it was saved from "
+                "ONNXArcFaceBackbone (keys like 'p_0', 'b_0', ...). "
+                "To load it correctly, you MUST also provide --onnx-backbone "
+                "so the architecture can be reconstructed from the original ONNX model.\n\n"
+                "Example:\n"
+                "  torchrun --nproc_per_node=8 train_v3.py configs/custom_nvr_onnx.py \\\n"
+                "    --onnx-backbone /path/to/nvr.prod.v7.onnx \\\n"
+                "    --backbone-pth /path/to/nvr_prod_v7_backbone.pth\n"
+            )
+
+        # Otherwise, assume it's a standard arcface_torch backbone for cfg.network
+        logging.info(
+            f"[Backbone] Using built-in backbone '{cfg.network}' "
+            f"and loading weights from {args.backbone_pth}"
+        )
+        core = get_model(
+            cfg.network,
+            dropout=0.0,
+            fp16=cfg.fp16,
+            num_features=cfg.embedding_size,
+        ).to(local_device)
+        core.load_state_dict(state_dict, strict=True)
+
+    # ----- Case 3: no ONNX, no .pth -> fully standard backbone -----
     else:
         logging.info(f"[Backbone] Using built-in backbone: {cfg.network}")
         core = get_model(
@@ -94,16 +157,12 @@ def build_backbone(cfg, args):
             num_features=cfg.embedding_size,
         ).to(local_device)
 
-    # --- Optional: load raw PyTorch checkpoint weights (.pth) ---
-    if args.backbone_pth is not None:
-        load_backbone_state(core, args.backbone_pth)
-
-    # --- Optional: print summary & compare with ONNX ---
+    # ---- Optional: diagnostics on rank 0 ----
     if RANK == 0 and args.print_summary:
         print_model_summary(core, input_shape=(1, 3, 112, 112))
 
     if RANK == 0 and args.compare_onnx and args.onnx_backbone is not None:
-        compare_onnx_and_pytorch(
+        compare_onnx_pytorch(
             args.onnx_backbone,
             pytorch_model=core,
             device=local_device,
@@ -154,7 +213,6 @@ def main(args):
         cfg.interclass_filtering_threshold,
     )
 
-    # PartialFC head + optimizer
     module_partial_fc = PartialFC_V2(
         margin_loss,
         cfg.embedding_size,
@@ -186,7 +244,6 @@ def main(args):
     else:
         raise ValueError(f"Unsupported optimizer: {cfg.optimizer}")
 
-    # LR schedule
     cfg.total_batch_size = cfg.batch_size * WORLD_SIZE
     cfg.warmup_step = cfg.num_image // cfg.total_batch_size * cfg.warmup_epoch
     cfg.total_step = cfg.num_image // cfg.total_batch_size * cfg.num_epoch
@@ -199,7 +256,6 @@ def main(args):
         last_epoch=-1,
     )
 
-    # Optional resume from full training checkpoint
     start_epoch = 0
     global_step = 0
     if cfg.resume:
@@ -234,7 +290,7 @@ def main(args):
     loss_meter = AverageMeter()
     scaler = torch.cuda.amp.grad_scaler.GradScaler(growth_interval=100)
 
-    # --------------- training loop ---------------
+    # ---------------- training loop ----------------
     for epoch in range(start_epoch, cfg.num_epoch):
         if isinstance(train_loader, DataLoader):
             train_loader.sampler.set_epoch(epoch)
@@ -313,20 +369,22 @@ if __name__ == "__main__":
         "--onnx-backbone",
         type=str,
         default=None,
-        help="Path to ONNX backbone (LResNet100E-IR). "
-             "If omitted, uses cfg.network + get_model().",
+        help="Path to ONNX LResNet100E-IR backbone (nvr.prod.v7.onnx). "
+             "If omitted, uses cfg.network with get_model().",
     )
     parser.add_argument(
         "--backbone-pth",
         type=str,
         default=None,
-        help="Optional .pth file with backbone weights (raw state_dict or "
-             "full checkpoint with key 'state_dict_backbone').",
+        help="Optional .pth with backbone weights. "
+             "If used together with --onnx-backbone, it is assumed to be an "
+             "ONNXArcFaceBackbone state_dict. If used alone, it is assumed "
+             "to match cfg.network's built-in backbone.",
     )
     parser.add_argument(
         "--compare-onnx",
         action="store_true",
-        help="Compare PyTorch backbone vs ONNXRuntime outputs (requires --onnx-backbone).",
+        help="Compare PyTorch backbone vs ONNXRuntime (requires --onnx-backbone).",
     )
     parser.add_argument(
         "--print-summary",
