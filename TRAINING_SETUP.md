@@ -31,21 +31,28 @@ config.fp16 = True
 
 ### Training Command
 ```bash
-# Auto-detect number of GPUs and use torchrun for distributed training
+# Using python -m torch.distributed.run (recommended - ensures correct Python environment)
 # Replace N with your GPU count (1, 2, 4, 8, etc.)
-torchrun --nproc_per_node=N --standalone train_v3.py configs/reidnet_v3_finetune.py \
+python -m torch.distributed.run --nproc_per_node=N --standalone \
+  train_v3.py configs/reidnet_v3_finetune.py \
   --onnx-backbone /path/to/nvr.prod.v7.facerec.backbone.onnx
 
 # Example for single GPU:
-torchrun --nproc_per_node=1 --standalone train_v3.py configs/reidnet_v3_finetune.py \
+python -m torch.distributed.run --nproc_per_node=1 --standalone \
+  train_v3.py configs/reidnet_v3_finetune.py \
   --onnx-backbone pretrained_models/nvr.prod.v7.facerec.backbone.onnx
 
 # Example for 8 GPUs:
+python -m torch.distributed.run --nproc_per_node=8 --standalone \
+  train_v3.py configs/reidnet_v3_finetune.py \
+  --onnx-backbone pretrained_models/nvr.prod.v7.facerec.backbone.onnx
+
+# Alternative: using torchrun (requires torchrun to use same Python as dependencies)
 torchrun --nproc_per_node=8 --standalone train_v3.py configs/reidnet_v3_finetune.py \
   --onnx-backbone pretrained_models/nvr.prod.v7.facerec.backbone.onnx
 ```
 
-**Note**: The notebook automatically detects GPU count and uses `torchrun` accordingly.
+**Note**: The notebook automatically detects GPU count and uses `python -m torch.distributed.run` to ensure the correct Python environment with all dependencies.
 
 ## How train_v3.py Handles This
 
@@ -97,11 +104,13 @@ The `reidnet_v3_training_brevdev_refactored.ipynb` already handles this:
 
 3. **Start training** (cell 8):
    - Auto-detects number of GPUs using `torch.cuda.device_count()`
-   - Uses `torchrun --nproc_per_node=N --standalone` for distributed training
+   - Uses `sys.executable -m torch.distributed.run` for distributed training
+   - This ensures the same Python environment is used (with all installed dependencies)
    - Adds `--onnx-backbone` flag if ONNX model is available
    ```python
    num_gpus = torch.cuda.device_count()
-   cmd = ["torchrun", f"--nproc_per_node={num_gpus}", "--standalone", 
+   cmd = [sys.executable, "-m", "torch.distributed.run",
+          f"--nproc_per_node={num_gpus}", "--standalone", 
           "train_v3.py", "configs/reidnet_v3_finetune.py"]
    if ONNX_BACKBONE:
        cmd.extend(["--onnx-backbone", ONNX_BACKBONE])
