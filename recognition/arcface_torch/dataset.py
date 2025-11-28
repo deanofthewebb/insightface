@@ -2,9 +2,10 @@ import numbers
 import os
 import queue as Queue
 import threading
+import struct
 from typing import Iterable
+from io import BytesIO
 
-import mxnet as mx
 import numpy as np
 import torch
 from functools import partial
@@ -12,6 +13,7 @@ from torch import distributed
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
+from PIL import Image
 from utils.utils_distributed_sampler import DistributedSampler
 from utils.utils_distributed_sampler import get_dist_info, worker_init_fn
 
@@ -147,30 +149,90 @@ class MXFaceDataset(Dataset):
         self.local_rank = local_rank
         path_imgrec = os.path.join(root_dir, 'train.rec')
         path_imgidx = os.path.join(root_dir, 'train.idx')
-        self.imgrec = mx.recordio.MXIndexedRecordIO(path_imgidx, path_imgrec, 'r')
-        s = self.imgrec.read_idx(0)
-        header, _ = mx.recordio.unpack(s)
-        if header.flag > 0:
-            self.header0 = (int(header.label[0]), int(header.label[1]))
-            self.imgidx = np.array(range(1, int(header.label[0])))
+        
+        self.idx_path = path_imgidx
+        self.rec_file = open(path_imgrec, 'rb')
+        self.idx_map = self._load_idx(path_imgidx)
+        
+        header_s = self._read_record(0)
+        if header_s:
+            header = self._unpack_header(header_s)
+            if header and len(header['label']) >= 2 and header['label'][0] > 0:
+                self.header0 = (int(header['label'][0]), int(header['label'][1]))
+                self.imgidx = np.array(range(1, int(header['label'][0])))
+            else:
+                self.imgidx = np.array(list(self.idx_map.keys()))
         else:
-            self.imgidx = np.array(list(self.imgrec.keys))
+            self.imgidx = np.array(list(self.idx_map.keys()))
+
+    def _load_idx(self, idx_path):
+        idx_map = {}
+        with open(idx_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split('\t')
+                if len(parts) >= 3:
+                    idx = int(parts[0])
+                    offset = int(parts[1])
+                    idx_map[idx] = offset
+        return idx_map
+
+    def _read_record(self, idx):
+        if idx not in self.idx_map:
+            return None
+        offset = self.idx_map[idx]
+        self.rec_file.seek(offset)
+        
+        magic = struct.unpack('I', self.rec_file.read(4))[0]
+        if magic != 0xced7230a:
+            return None
+        
+        length_record = struct.unpack('I', self.rec_file.read(4))[0]
+        record_data = self.rec_file.read(length_record)
+        
+        return record_data
+
+    def _unpack_header(self, record_data):
+        flag = struct.unpack('I', record_data[:4])[0]
+        
+        if flag == 0:
+            return {'flag': 0, 'label': [0]}
+        
+        label_size = flag
+        label = struct.unpack(f'{label_size}f', record_data[4:4+label_size*4])
+        
+        return {'flag': flag, 'label': label}
 
     def __getitem__(self, index):
         idx = self.imgidx[index]
-        s = self.imgrec.read_idx(idx)
-        header, img = mx.recordio.unpack(s)
-        label = header.label
+        record_data = self._read_record(idx)
+        
+        if not record_data:
+            return self.__getitem__((index + 1) % len(self))
+        
+        header = self._unpack_header(record_data)
+        
+        header_size = 4 + len(header['label']) * 4
+        img_data = record_data[header_size:]
+        
+        label = header['label']
         if not isinstance(label, numbers.Number):
             label = label[0]
         label = torch.tensor(label, dtype=torch.long)
-        sample = mx.image.imdecode(img).asnumpy()
+        
+        img = Image.open(BytesIO(img_data)).convert('RGB')
+        sample = np.array(img)
+        
         if self.transform is not None:
             sample = self.transform(sample)
+        
         return sample, label
 
     def __len__(self):
         return len(self.imgidx)
+    
+    def __del__(self):
+        if hasattr(self, 'rec_file'):
+            self.rec_file.close()
 
 
 class SyntheticDataset(Dataset):

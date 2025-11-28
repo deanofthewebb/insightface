@@ -27,12 +27,12 @@
 import datetime
 import os
 import pickle
+from io import BytesIO
 
-import mxnet as mx
 import numpy as np
 import sklearn
 import torch
-from mxnet import ndarray as nd
+from PIL import Image
 from scipy import interpolate
 from sklearn.decomposition import PCA
 from sklearn.model_selection import KFold
@@ -206,18 +206,27 @@ def load_bin(path, image_size):
             bins, issame_list = pickle.load(f, encoding='bytes')  # py3
     data_list = []
     for flip in [0, 1]:
-        data = torch.empty((len(issame_list) * 2, 3, image_size[0], image_size[1]))
+        data = torch.empty((len(issame_list) * 2, 3, image_size[0], image_size[1]), dtype=torch.uint8)
         data_list.append(data)
     for idx in range(len(issame_list) * 2):
         _bin = bins[idx]
-        img = mx.image.imdecode(_bin)
-        if img.shape[1] != image_size[0]:
-            img = mx.image.resize_short(img, image_size[0])
-        img = nd.transpose(img, axes=(2, 0, 1))
+        img = Image.open(BytesIO(_bin)).convert('RGB')
+        
+        if img.width != image_size[0]:
+            scale = image_size[0] / min(img.width, img.height)
+            new_size = (int(img.width * scale), int(img.height * scale))
+            img = img.resize(new_size, Image.BILINEAR)
+        
+        img_np = np.array(img)
+        img_np = np.transpose(img_np, (2, 0, 1))
+        
         for flip in [0, 1]:
             if flip == 1:
-                img = mx.ndarray.flip(data=img, axis=2)
-            data_list[flip][idx][:] = torch.from_numpy(img.asnumpy())
+                img_flipped = np.flip(img_np, axis=2).copy()
+                data_list[flip][idx][:] = torch.from_numpy(img_flipped)
+            else:
+                data_list[flip][idx][:] = torch.from_numpy(img_np)
+        
         if idx % 1000 == 0:
             print('loading bin', idx)
     print(data_list[0].shape)
