@@ -112,6 +112,14 @@ class DistributedSampler(_DistributedSampler):
         else:
             indices = torch.arange(len(self.dataset)).tolist()
 
+        # Check if dataset is empty
+        if len(indices) == 0:
+            raise ValueError(
+                f"Dataset has 0 samples! Cannot create distributed sampler.\n"
+                f"Dataset length: {len(self.dataset)}\n"
+                f"This usually means the dataset failed to load properly."
+            )
+
         # add extra samples to make it evenly divisible
         # in case that indices is shorter than half of total_size
         indices = (indices * math.ceil(self.total_size / len(indices)))[

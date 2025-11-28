@@ -3,6 +3,7 @@ import os
 import queue as Queue
 import threading
 import struct
+import numbers
 from typing import Iterable
 from io import BytesIO
 
@@ -150,9 +151,17 @@ class MXFaceDataset(Dataset):
         path_imgrec = os.path.join(root_dir, 'train.rec')
         path_imgidx = os.path.join(root_dir, 'train.idx')
         
+        if not os.path.exists(path_imgrec):
+            raise FileNotFoundError(f"RecordIO file not found: {path_imgrec}")
+        if not os.path.exists(path_imgidx):
+            raise FileNotFoundError(f"Index file not found: {path_imgidx}")
+        
         self.idx_path = path_imgidx
         self.rec_file = open(path_imgrec, 'rb')
         self.idx_map = self._load_idx(path_imgidx)
+        
+        if not self.idx_map:
+            raise ValueError(f"Empty index file: {path_imgidx}. The dataset may be corrupted.")
         
         header_s = self._read_record(0)
         if header_s:
@@ -164,6 +173,15 @@ class MXFaceDataset(Dataset):
                 self.imgidx = np.array(list(self.idx_map.keys()))
         else:
             self.imgidx = np.array(list(self.idx_map.keys()))
+        
+        if len(self.imgidx) == 0:
+            raise ValueError(
+                f"Dataset has 0 samples! Check:\n"
+                f"  - RecordIO file: {path_imgrec} ({os.path.getsize(path_imgrec)} bytes)\n"
+                f"  - Index file: {path_imgidx} ({os.path.getsize(path_imgidx)} bytes)\n"
+                f"  - idx_map entries: {len(self.idx_map)}\n"
+                f"Dataset may be corrupted or empty."
+            )
 
     def _load_idx(self, idx_path):
         idx_map = {}
