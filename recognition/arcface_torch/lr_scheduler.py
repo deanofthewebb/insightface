@@ -3,6 +3,41 @@ from torch.optim import SGD
 import torch
 import warnings
 
+class PolyScheduler(_LRScheduler):
+    """Polynomial learning rate scheduler with warmup (train_v3 API)"""
+    def __init__(self, optimizer, base_lr, max_steps, warmup_steps, power=1.0, last_epoch=-1, verbose=False):
+        self.max_steps = max_steps
+        self.warmup_steps = warmup_steps
+        self.power = power
+        super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
+
+    def get_lr(self):
+        if not self._get_lr_called_within_step:
+            warnings.warn("To get the last learning rate computed by the scheduler, "
+                          "please use `get_last_lr()`.", UserWarning)
+
+        if self.last_epoch == 0 or self.last_epoch > self.max_steps:
+            return [group["lr"] for group in self.optimizer.param_groups]
+
+        if self.last_epoch <= self.warmup_steps:
+            return [base_lr * self.last_epoch / self.warmup_steps for base_lr in self.base_lrs]
+        else:
+            l = self.last_epoch
+            w = self.warmup_steps
+            t = self.max_steps
+            decay_factor = ((1.0 - (l - w) / (t - w)) / (1.0 - (l - 1 - w) / (t - w))) ** self.power
+            return [group["lr"] * decay_factor for group in self.optimizer.param_groups]
+
+    def _get_closed_form_lr(self):
+        if self.last_epoch <= self.warmup_steps:
+            return [base_lr * self.last_epoch / self.warmup_steps for base_lr in self.base_lrs]
+        else:
+            return [
+                (base_lr * (1.0 - (min(self.max_steps, self.last_epoch) - self.warmup_steps) / (self.max_steps - self.warmup_steps)) ** self.power)
+                for base_lr in self.base_lrs
+            ]
+
+
 class PolynomialLRWarmup(_LRScheduler):
     def __init__(self, optimizer, warmup_iters, total_iters=5, power=1.0, last_epoch=-1, verbose=False):
         super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
