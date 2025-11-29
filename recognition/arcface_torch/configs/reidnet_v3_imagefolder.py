@@ -27,8 +27,12 @@ config.val_targets = []
 # ------------------------------------------------------------------
 # Training schedule
 # ------------------------------------------------------------------
-config.batch_size = 128             # Per-GPU batch size (adjust for A100 24GB)
-config.num_workers = 8
+# Batch size configurations for different GPU sizes:
+# - 24GB GPU (A100/V100): batch_size = 128
+# - 16GB GPU (T4/V100): batch_size = 64
+# - 15GB GPU: batch_size = 32 (testing)
+config.batch_size = 32              # Per-GPU batch size (optimized for 15GB GPU)
+config.num_workers = 4              # Reduced for lower memory
 config.dali = False
 config.dali_aug = False
 
