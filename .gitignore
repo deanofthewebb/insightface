@@ -104,3 +104,4 @@ ENV/
 
 # Pretrained models (download from S3)
 pretrained_models/
+defaults.env
