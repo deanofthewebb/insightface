@@ -358,6 +358,21 @@ def main(args):
         if RANK == 0:
             path_module = os.path.join(cfg.output, "model.pt")
             torch.save(backbone.module.state_dict(), path_module)
+            
+            # Save epoch checkpoint
+            epoch_checkpoint = {
+                "epoch": epoch + 1,
+                "global_step": global_step,
+                "state_dict_backbone": backbone.module.state_dict(),
+                "state_dict_softmax_fc": module_partial_fc.state_dict(),
+                "state_optimizer": opt.state_dict(),
+                "state_lr_scheduler": lr_scheduler.state_dict(),
+            }
+            epoch_dir = os.path.join(cfg.output, f"epoch_{epoch + 1}")
+            os.makedirs(epoch_dir, exist_ok=True)
+            torch.save(epoch_checkpoint, os.path.join(epoch_dir, "checkpoint.pt"))
+            torch.save(backbone.module.state_dict(), os.path.join(epoch_dir, "backbone.pth"))
+            logging.info(f"Saved epoch {epoch + 1} checkpoint to {epoch_dir}")
 
         if cfg.dali:
             train_loader.reset()
