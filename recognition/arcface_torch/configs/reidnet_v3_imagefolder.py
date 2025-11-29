@@ -6,7 +6,7 @@ config = edict()
 # ------------------------------------------------------------------
 # Basic setup
 # ------------------------------------------------------------------
-config.output = "/home/ubuntu/checkpoints/reidnet_v3/work_dirs"
+config.output = "/home/shadeform/checkpoints/reidnet_v3/work_dirs"
 config.resume = False
 config.fp16 = True
 config.seed = 2048
@@ -14,7 +14,7 @@ config.seed = 2048
 # ------------------------------------------------------------------
 # Dataset (ImageFolder format)
 # ------------------------------------------------------------------
-config.rec = "/home/ubuntu/insightface_training/datasets/reidnet_v3_imagefolder"
+config.rec = "/home/shadeform/insightface_training/datasets/reidnet_v3_imagefolder"
 
 # Dataset statistics - from merged dataset
 # Merged from reidnet_v2_training_data (faces_only had only single-image identities)
@@ -28,11 +28,12 @@ config.val_targets = []
 # Training schedule
 # ------------------------------------------------------------------
 # Batch size configurations for different GPU sizes:
-# - 24GB GPU (A100/V100): batch_size = 128
-# - 16GB GPU (T4/V100): batch_size = 64
-# - 15GB GPU: batch_size = 32 (testing)
-config.batch_size = 32              # Per-GPU batch size (optimized for 15GB GPU)
-config.num_workers = 4              # Reduced for lower memory
+# - 80GB GPU (A100): batch_size = 256
+# - 40GB GPU (A100): batch_size = 128
+# - 24GB GPU (A100/V100): batch_size = 64
+# - 15GB GPU (T4): batch_size = 16 (marginal)
+config.batch_size = 256             # Per-GPU batch size (optimized for 80GB GPU)
+config.num_workers = 8              # Can use more workers with 80GB
 config.dali = False
 config.dali_aug = False
 

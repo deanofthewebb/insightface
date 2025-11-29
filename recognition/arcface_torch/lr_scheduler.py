@@ -9,7 +9,7 @@ class PolyScheduler(_LRScheduler):
         self.max_steps = max_steps
         self.warmup_steps = warmup_steps
         self.power = power
-        super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
+        super().__init__(optimizer, last_epoch=last_epoch)
 
     def get_lr(self):
         if not self._get_lr_called_within_step:
@@ -40,7 +40,7 @@ class PolyScheduler(_LRScheduler):
 
 class PolynomialLRWarmup(_LRScheduler):
     def __init__(self, optimizer, warmup_iters, total_iters=5, power=1.0, last_epoch=-1, verbose=False):
-        super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
+        super().__init__(optimizer, last_epoch=last_epoch)
         self.total_iters = total_iters
         self.power = power
         self.warmup_iters = warmup_iters
