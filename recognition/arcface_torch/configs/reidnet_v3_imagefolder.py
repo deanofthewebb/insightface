@@ -16,10 +16,10 @@ config.seed = 2048
 # ------------------------------------------------------------------
 config.rec = "/home/ubuntu/insightface_training/datasets/reidnet_v3_imagefolder"
 
-# Dataset statistics - will be auto-detected from directory structure
-# These are estimates based on the processed dataset
+# Dataset statistics - from merged dataset
+# Merged from reidnet_v2_training_data (faces_only had only single-image identities)
 config.num_classes = 102_491       # Number of identity subdirectories
-config.num_image = 430_143         # Total training images (estimated)
+config.num_image = 430_143         # Total training images
 
 # Validation targets (empty if no validation sets available)
 config.val_targets = []
