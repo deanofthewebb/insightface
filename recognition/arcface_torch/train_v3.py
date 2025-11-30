@@ -137,7 +137,13 @@ def build_backbone(cfg, args):
             ).to(local_device)
             
             # Use weight mapping utility to load sequential weights
-            load_sequential_weights(core, args.backbone_pth, strict=False)
+            # If --onnx-backbone was provided earlier in training, use it for precise mapping
+            onnx_ref = None
+            if args.onnx_backbone and os.path.exists(args.onnx_backbone):
+                onnx_ref = args.onnx_backbone
+                logging.info(f"[Backbone] Using ONNX reference for graph-based mapping: {onnx_ref}")
+            
+            load_sequential_weights(core, args.backbone_pth, strict=False, onnx_path=onnx_ref)
         else:
             # Standard PyTorch format - load directly
             logging.info(
